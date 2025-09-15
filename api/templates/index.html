@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ajo Number Picker</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background-color: #f0f0f0;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            text-align: center;
+            width: 100%;
+            max-width: 600px;
+        }
+        h1 {
+            color: #333;
+        }
+        .info-section {
+            margin-bottom: 20px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background-color: #fafafa;
+        }
+        .grid-container {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .grid-item {
+            width: 100%;
+            padding-top: 100%; /* Makes tiles square */
+            position: relative;
+            background-color: #007bff;
+            border: 2px solid #0056b3;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 24px;
+            font-weight: bold;
+            border-radius: 8px;
+            transition: background-color 0.3s;
+        }
+        .grid-item.picked {
+            background-color: #6c757d;
+            cursor: default;
+        }
+        .grid-item:hover:not(.picked) {
+            background-color: #0056b3;
+        }
+        .grid-item.revealed {
+            background-color: #28a745;
+            cursor: default;
+        }
+        .result-section {
+            margin-top: 20px;
+            text-align: left;
+        }
+        .result-item {
+            font-size: 18px;
+            margin-bottom: 8px;
+        }
+        #revealButton {
+            background-color: #dc3545;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            border-radius: 5px;
+            transition: background-color 0.3s;
+        }
+        #revealButton:hover {
+            background-color: #c82333;
+        }
+        #participantCount {
+            margin-bottom: 15px;
+            padding: 8px;
+            border-radius: 4px;
+            border: 1px solid #ccc;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Ajo Number Picker</h1>
+    <div class="info-section">
+        <p>Instructions: Click on a tile and enter your name. The board will update for everyone.</p>
+        <label for="memberName">Your Name:</label>
+        <input type="text" id="memberName" placeholder="Enter your name here">
+    </div>
+
+    <div class="grid-container" id="grid">
+        </div>
+
+    <button id="revealButton">Reveal All Numbers</button>
+
+    <div class="result-section">
+        <h2>Results:</h2>
+        <div id="results"></div>
+    </div>
+</div>
+
+<script>
+    const gridContainer = document.getElementById('grid');
+    const memberNameInput = document.getElementById('memberName');
+    const revealButton = document.getElementById('revealButton');
+    const resultsDiv = document.getElementById('results');
+
+    const totalParticipants = 20;
+
+    async function loadGameState() {
+        const response = await fetch('/api/game_state');
+        const gameState = await response.json();
+        updateBoard(gameState);
+    }
+    
+    function updateBoard(gameState) {
+        gridContainer.innerHTML = '';
+        resultsDiv.innerHTML = '';
+        
+        for (let i = 0; i < gameState.tiles.length; i++) {
+            const tileData = gameState.tiles[i];
+            const gridItem = document.createElement('div');
+            gridItem.className = 'grid-item';
+            gridItem.textContent = tileData.pickedBy || (i + 1);
+            gridItem.dataset.tileId = tileData.id;
+            gridItem.dataset.number = tileData.number;
+            
+            if (tileData.pickedBy) {
+                gridItem.classList.add('picked');
+            }
+            if (gameState.revealed) {
+                gridItem.classList.add('revealed');
+                gridItem.textContent = tileData.number;
+            }
+            gridContainer.appendChild(gridItem);
+        }
+
+        if (gameState.picksMade === totalParticipants && !gameState.revealed) {
+            revealButton.style.display = 'block';
+        } else {
+            revealButton.style.display = 'none';
+        }
+
+        if (gameState.revealed) {
+            const sortedSelections = gameState.selections.sort((a, b) => a.number - b.number);
+            sortedSelections.forEach((selection, index) => {
+                const resultItem = document.createElement('div');
+                resultItem.className = 'result-item';
+                resultItem.innerHTML = `<strong>${index + 1}.</strong> ${selection.name} has number <strong>${selection.number}</strong>`;
+                resultsDiv.appendChild(resultItem);
+            });
+        }
+    }
+    
+    gridContainer.addEventListener('click', async (event) => {
+        const tile = event.target.closest('.grid-item');
+        if (!tile || tile.classList.contains('picked')) return;
+
+        const name = memberNameInput.value.trim();
+        if (name === '') {
+            alert("Please enter your name first!");
+            return;
+        }
+
+        const tileId = tile.dataset.tileId;
+        const response = await fetch('/api/pick_tile', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tileId, name })
+        });
+        const result = await response.json();
+        
+        if (!result.success) {
+            alert(result.message);
+        }
+    });
+
+    revealButton.addEventListener('click', async () => {
+        const response = await fetch('/api/reveal', { method: 'POST' });
+        const result = await response.json();
+        if (result.success) {
+            loadGameState();
+        }
+    });
+
+    setInterval(loadGameState, 2000);
+    
+    loadGameState();
+
+</script>
+
+</body>
+</html>
